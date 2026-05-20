@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y --no-install-recommends \
+  ca-certificates \
+  curl \
+  git \
+  build-essential \
+  python3 \
+  python3-venv \
+  python3-pip
+
+id -u ${runtime_user} >/dev/null 2>&1 || useradd --create-home --shell /bin/bash ${runtime_user}
+
+install -d -o ${runtime_user} -g ${runtime_user} ${stack_root}
+install -d -o ${runtime_user} -g ${runtime_user} ${logs_root}
+install -d -o ${runtime_user} -g ${runtime_user} /etc/iii-stack
+
+cat >/etc/iii-stack/runtime.env <<EOF
+STACK_ROOT=${stack_root}
+PYTHON_VENV=${python_venv}
+III_URL=ws://${private_rpc_ip}:${rpc_port}
+MODEL_DISK_NAME=${model_disk_name}
+MODEL_GCS_URI=${model_gcs_uri}
+EOF
+
+chmod 0640 /etc/iii-stack/runtime.env
+chown ${runtime_user}:${runtime_user} /etc/iii-stack/runtime.env
+
+# Install Google Cloud SDK (gsutil) so we can download model artifacts from GCS
+if [ -n "${model_gcs_uri}" ]; then
+  apt-get install -y apt-transport-https ca-certificates gnupg
+  curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+  echo "deb http://packages.cloud.google.com/apt cloud-sdk main" | tee /etc/apt/sources.list.d/google-cloud-sdk.list
+  apt-get update
+  apt-get install -y google-cloud-sdk
+
+  # Ensure model mount point exists
+  install -d -o ${runtime_user} -g ${runtime_user} /opt/models
+
+  # Device path by-id
+  DEVICE_PATH="/dev/disk/by-id/google-${model_disk_name}"
+  if [ -e "$DEVICE_PATH" ]; then
+    # format if needed
+    if ! blkid "$DEVICE_PATH" >/dev/null 2>&1; then
+      mkfs.ext4 -F "$DEVICE_PATH"
+    fi
+    if ! mountpoint -q /opt/models; then
+      mount -o discard,defaults "$DEVICE_PATH" /opt/models
+      echo "$DEVICE_PATH /opt/models ext4 discard,defaults 0 2" >> /etc/fstab
+    fi
+  fi
+
+  # Download model artifacts (supports gs:// and http(s) URLs)
+  if echo "${model_gcs_uri}" | grep -q '^gs://'; then
+    gsutil -m cp -r "${model_gcs_uri}" /opt/models/
+    chown -R ${runtime_user}:${runtime_user} /opt/models
+  elif echo "${model_gcs_uri}" | grep -q -E '^https?://'; then
+    # support downloading a single archive or file
+    cd /opt/models
+    if echo "${model_gcs_uri}" | grep -qE '\.zip$|\.tar\.gz$|\.tgz$'; then
+      curl -fsSL "${model_gcs_uri}" -o /opt/models/model_archive
+      if file /opt/models/model_archive | grep -q 'gzip compressed data'; then
+        tar xzf /opt/models/model_archive -C /opt/models || true
+      else
+        unzip -o /opt/models/model_archive -d /opt/models || true
+      fi
+      rm -f /opt/models/model_archive
+    else
+      curl -fsSL "${model_gcs_uri}" -o /opt/models/model.bin
+    fi
+    chown -R ${runtime_user}:${runtime_user} /opt/models
+  fi
+fi

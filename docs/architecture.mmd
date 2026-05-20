@@ -1,0 +1,40 @@
+flowchart LR
+  user[Client / curl]
+  internet[(Public Internet)]
+
+  subgraph aws[AWS VPC: iii-stack]
+    direction LR
+    subgraph public_subnet[Public Subnet]
+      nat[NAT Instance
+Ubuntu t3.micro
+EIP
+Outbound Access]
+      public_ec2[Public EC2
+Ubuntu t3.micro
+III Engine + caller-worker
+HTTP API :3111
+RPC :49134]
+    end
+
+    subgraph private_subnet[Private Subnet]
+      private_ec2[Private EC2
+Ubuntu t3.micro
+inference-worker
+No public IP]
+    end
+
+    ecr[(Amazon ECR)]
+    s3[(Amazon S3
+Model Artifacts)]
+    r53[(Route 53 Private Zone
+iii.internal)]
+  end
+
+  user --> internet --> public_ec2
+  public_ec2 <-->|WebSocket RPC :49134| private_ec2
+  public_ec2 <-->|Docker pull| ecr
+  private_ec2 <-->|Docker pull| ecr
+  private_ec2 <-->|aws s3 sync| s3
+  public_ec2 <-->|Private DNS| r53
+  private_ec2 <-->|Private DNS| r53
+  private_ec2 --> nat --> internet

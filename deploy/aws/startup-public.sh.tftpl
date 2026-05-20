@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Parameters passed by Terraform template
+RUNTIME_USER=${runtime_user:-iii}
+STACK_ROOT=${stack_root:-/opt/iii-stack}
+LOGS_ROOT=${logs_root:-/var/log/iii-stack}
+III_ENGINE_PRIVATE_IP=${engine_private_ip}
+III_ENGINE_PORT=${iii_engine_port}
+ECR_REGION=${ecr_region}
+ECR_ENGINE_URI=${ecr_engine_uri}
+ECR_CALLER_URI=${ecr_caller_uri}
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y --no-install-recommends \
+  apt-transport-https \
+  ca-certificates \
+  curl \
+  gnupg \
+  lsb-release \
+  docker.io \
+  awscli
+
+systemctl enable --now docker
+
+# Create runtime user and directories
+id -u ${RUNTIME_USER} >/dev/null 2>&1 || useradd --create-home --shell /bin/bash ${RUNTIME_USER}
+install -d -o ${RUNTIME_USER} -g ${RUNTIME_USER} ${STACK_ROOT}
+install -d -o ${RUNTIME_USER} -g ${RUNTIME_USER} ${LOGS_ROOT}
+install -d -o ${RUNTIME_USER} -g ${RUNTIME_USER} /etc/iii-stack
+
+cat >/etc/iii-stack/runtime.env <<EOF
+III_URL=ws://${III_ENGINE_PRIVATE_IP}:${III_ENGINE_PORT}
+STACK_ROOT=${STACK_ROOT}
+LOGS_ROOT=${LOGS_ROOT}
+EOF
+
+chmod 0640 /etc/iii-stack/runtime.env
+chown root:${RUNTIME_USER} /etc/iii-stack/runtime.env
+
+# Login to ECR (requires instance role with ECR permissions or AWS credentials configured)
+if [ -n "${ECR_REGION}" ] && [ -n "${ECR_ENGINE_URI}" ]; then
+  aws ecr get-login-password --region ${ECR_REGION} | docker login --username AWS --password-stdin ${ECR_ENGINE_URI%%/*}
+fi
+
+# Pull images (best effort)
+if [ -n "${ECR_ENGINE_URI}" ]; then
+  docker pull ${ECR_ENGINE_URI} || true
+fi
+if [ -n "${ECR_CALLER_URI}" ]; then
+  docker pull ${ECR_CALLER_URI} || true
+fi
+
+# Ensure systemd unit files are present (Terraform will typically copy them), just reload and start
+systemctl daemon-reload || true
+systemctl enable --now iii-engine.service || true
+systemctl enable --now caller-worker.service || true
+
+exit 0

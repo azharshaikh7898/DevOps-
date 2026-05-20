@@ -1,0 +1,113 @@
+name: AWS CI/CD
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      - name: Terraform fmt check
+        working-directory: terraform
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init (backend disabled)
+        working-directory: terraform
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform validate
+        working-directory: terraform
+        run: terraform validate
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install and build caller-worker
+        working-directory: caller-worker
+        run: |
+          npm ci
+          npm run build
+
+      - name: Validate engine package
+        working-directory: engine
+        run: npm ci
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check inference worker syntax
+        run: python -m py_compile inference-worker/inference_worker.py
+
+      - name: Docker build check - engine
+        run: docker build -f engine/Dockerfile -t iii-engine:ci .
+
+      - name: Docker build check - caller-worker
+        run: docker build -f caller-worker/Dockerfile -t caller-worker:ci .
+
+      - name: Docker build check - inference-worker
+        run: docker build -f inference-worker/Dockerfile -t inference-worker:ci .
+
+  push-images:
+    if: github.event_name == 'push'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set repository URIs
+        id: repos
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "engine_uri=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/iii-engine" >> "$GITHUB_OUTPUT"
+          echo "caller_uri=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/caller-worker" >> "$GITHUB_OUTPUT"
+          echo "inference_uri=$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/inference-worker" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push engine image
+        run: |
+          docker build -f engine/Dockerfile -t "${{ steps.repos.outputs.engine_uri }}:${{ github.sha }}" -t "${{ steps.repos.outputs.engine_uri }}:latest" .
+          docker push "${{ steps.repos.outputs.engine_uri }}:${{ github.sha }}"
+          docker push "${{ steps.repos.outputs.engine_uri }}:latest"
+
+      - name: Build and push caller-worker image
+        run: |
+          docker build -f caller-worker/Dockerfile -t "${{ steps.repos.outputs.caller_uri }}:${{ github.sha }}" -t "${{ steps.repos.outputs.caller_uri }}:latest" .
+          docker push "${{ steps.repos.outputs.caller_uri }}:${{ github.sha }}"
+          docker push "${{ steps.repos.outputs.caller_uri }}:latest"
+
+      - name: Build and push inference-worker image
+        run: |
+          docker build -f inference-worker/Dockerfile -t "${{ steps.repos.outputs.inference_uri }}:${{ github.sha }}" -t "${{ steps.repos.outputs.inference_uri }}:latest" .
+          docker push "${{ steps.repos.outputs.inference_uri }}:${{ github.sha }}"
+          docker push "${{ steps.repos.outputs.inference_uri }}:latest"

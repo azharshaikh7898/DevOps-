@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RUNTIME_USER=${runtime_user:-iii}
+STACK_ROOT=${stack_root:-/opt/iii-stack}
+LOGS_ROOT=${logs_root:-/var/log/iii-stack}
+MODEL_S3_URI=${model_s3_uri}
+MODEL_MOUNT_PATH=${model_mount_path:-/opt/models}
+ECR_REGION=${ecr_region}
+ECR_INFERENCE_URI=${ecr_inference_uri}
+III_ENGINE_PRIVATE_IP=${engine_private_ip}
+III_ENGINE_PORT=${iii_engine_port}
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y --no-install-recommends \
+  apt-transport-https \
+  ca-certificates \
+  curl \
+  gnupg \
+  lsb-release \
+  docker.io \
+  awscli
+
+systemctl enable --now docker
+
+# Create runtime user and directories
+id -u ${RUNTIME_USER} >/dev/null 2>&1 || useradd --create-home --shell /bin/bash ${RUNTIME_USER}
+install -d -o ${RUNTIME_USER} -g ${RUNTIME_USER} ${STACK_ROOT}
+install -d -o ${RUNTIME_USER} -g ${RUNTIME_USER} ${LOGS_ROOT}
+install -d -o ${RUNTIME_USER} -g ${RUNTIME_USER} /etc/iii-stack
+install -d -o ${RUNTIME_USER} -g ${RUNTIME_USER} ${MODEL_MOUNT_PATH}
+
+cat >/etc/iii-stack/runtime.env <<EOF
+III_URL=ws://${III_ENGINE_PRIVATE_IP}:${III_ENGINE_PORT}
+STACK_ROOT=${STACK_ROOT}
+LOGS_ROOT=${LOGS_ROOT}
+MODEL_PATH=${MODEL_MOUNT_PATH}/gemma-3-270m
+EOF
+
+chmod 0640 /etc/iii-stack/runtime.env
+chown root:${RUNTIME_USER} /etc/iii-stack/runtime.env
+
+# Mount EBS or local disk expected to be attached at /dev/xvdf (Terraform will attach)
+DEVICE=/dev/xvdf
+if [ -b "$DEVICE" ]; then
+  if ! blkid $DEVICE >/dev/null 2>&1; then
+    mkfs.ext4 -F $DEVICE
+  fi
+  mountpoint -q ${MODEL_MOUNT_PATH} || mount $DEVICE ${MODEL_MOUNT_PATH}
+  grep -q "$DEVICE" /etc/fstab || echo "$DEVICE ${MODEL_MOUNT_PATH} ext4 defaults,nofail 0 2" >> /etc/fstab
+  chown -R ${RUNTIME_USER}:${RUNTIME_USER} ${MODEL_MOUNT_PATH}
+fi
+
+# Download model from S3 if specified
+if [ -n "${MODEL_S3_URI}" ]; then
+  aws s3 cp --recursive "${MODEL_S3_URI}" "${MODEL_MOUNT_PATH}/gemma-3-270m/" || true
+  chown -R ${RUNTIME_USER}:${RUNTIME_USER} ${MODEL_MOUNT_PATH}
+fi
+
+# Login to ECR and pull inference image
+if [ -n "${ECR_REGION}" ] && [ -n "${ECR_INFERENCE_URI}" ]; then
+  aws ecr get-login-password --region ${ECR_REGION} | docker login --username AWS --password-stdin ${ECR_INFERENCE_URI%%/*}
+  docker pull ${ECR_INFERENCE_URI} || true
+fi
+
+systemctl daemon-reload || true
+systemctl enable --now inference-worker.service || true
+
+exit 0

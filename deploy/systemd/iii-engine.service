@@ -1,0 +1,21 @@
+[Unit]
+Description=III Engine
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/iii-stack/runtime.env
+ExecStartPre=/bin/bash -lc 'aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$(echo "$ENGINE_IMAGE" | cut -d/ -f1)" && docker pull "$ENGINE_IMAGE"'
+ExecStart=/bin/bash -lc 'docker run --rm --name iii-engine --network host -v /opt/iii-stack/deploy/config/config.yaml:/app/deploy/config/config.yaml:ro "$ENGINE_IMAGE"'
+ExecStop=/usr/bin/docker stop iii-engine
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/iii-stack /var/log/iii-stack /etc/iii-stack
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+[Unit]
+Description=III Caller Worker
+Wants=network-online.target docker.service iii-engine.service
+After=network-online.target docker.service iii-engine.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/iii-stack/runtime.env
+ExecStartPre=/bin/bash -lc 'aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$(echo "$CALLER_IMAGE" | cut -d/ -f1)" && docker pull "$CALLER_IMAGE"'
+ExecStart=/bin/bash -lc 'docker run --rm --name caller-worker --network host -e III_URL="$III_URL" "$CALLER_IMAGE"'
+ExecStop=/usr/bin/docker stop caller-worker
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/iii-stack /var/log/iii-stack /etc/iii-stack
+
+[Install]
+WantedBy=multi-user.target

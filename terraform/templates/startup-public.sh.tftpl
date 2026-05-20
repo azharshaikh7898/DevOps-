@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y --no-install-recommends \
+  ca-certificates \
+  curl \
+  git \
+  gnupg \
+  build-essential \
+  python3 \
+  python3-venv \
+  python3-pip
+
+if ! command -v node >/dev/null 2>&1; then
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y nodejs
+fi
+
+id -u ${runtime_user} >/dev/null 2>&1 || useradd --create-home --shell /bin/bash ${runtime_user}
+
+install -d -o ${runtime_user} -g ${runtime_user} ${stack_root}
+install -d -o ${runtime_user} -g ${runtime_user} ${logs_root}
+install -d -o ${runtime_user} -g ${runtime_user} /etc/iii-stack
+
+cat >/etc/iii-stack/runtime.env <<EOF
+III_URL=ws://${private_rpc_ip}:${rpc_port}
+III_ENGINE_BIND_HOST=${engine_bind_host}
+III_HTTP_BIND_HOST=${api_bind_host}
+III_HTTP_PORT=${http_api_port}
+STACK_ROOT=${stack_root}
+EOF
+
+chmod 0640 /etc/iii-stack/runtime.env
+chown ${runtime_user}:${runtime_user} /etc/iii-stack/runtime.env
