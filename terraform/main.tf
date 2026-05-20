@@ -190,8 +190,8 @@ resource "aws_iam_policy" "private_s3_read" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = ["s3:ListBucket"]
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
         Resource = aws_s3_bucket.model_artifacts.arn
         Condition = {
           StringLike = {
@@ -200,8 +200,8 @@ resource "aws_iam_policy" "private_s3_read" {
         }
       },
       {
-        Effect = "Allow"
-        Action = ["s3:GetObject"]
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
         Resource = "${aws_s3_bucket.model_artifacts.arn}/${var.model_s3_prefix}*"
       }
     ]
@@ -280,7 +280,7 @@ resource "aws_security_group" "private" {
 
 resource "aws_vpc_security_group_ingress_rule" "public_rpc_from_private" {
   security_group_id            = aws_security_group.public.id
-  referenced_security_group_id  = aws_security_group.private.id
+  referenced_security_group_id = aws_security_group.private.id
   ip_protocol                  = "tcp"
   from_port                    = var.iii_engine_port
   to_port                      = var.iii_engine_port
@@ -289,7 +289,7 @@ resource "aws_vpc_security_group_ingress_rule" "public_rpc_from_private" {
 
 resource "aws_vpc_security_group_ingress_rule" "private_rpc_from_public" {
   security_group_id            = aws_security_group.private.id
-  referenced_security_group_id  = aws_security_group.public.id
+  referenced_security_group_id = aws_security_group.public.id
   ip_protocol                  = "tcp"
   from_port                    = var.iii_engine_port
   to_port                      = var.iii_engine_port
@@ -328,9 +328,9 @@ resource "aws_security_group" "nat" {
 resource "aws_ecr_repository" "apps" {
   for_each = toset(["iii-engine", "caller-worker", "inference-worker"])
 
-  name                = each.value
+  name                 = each.value
   image_tag_mutability = "MUTABLE"
-  force_delete        = false
+  force_delete         = false
 
   image_scanning_configuration {
     scan_on_push = true
@@ -501,9 +501,9 @@ resource "aws_ebs_volume" "model_disk" {
 }
 
 resource "aws_volume_attachment" "model_attach" {
-  device_name = "/dev/xvdf"
-  volume_id   = aws_ebs_volume.model_disk.id
-  instance_id = aws_instance.private_inference.id
+  device_name  = "/dev/xvdf"
+  volume_id    = aws_ebs_volume.model_disk.id
+  instance_id  = aws_instance.private_inference.id
   force_detach = true
 
   depends_on = [aws_instance.private_inference]
