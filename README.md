@@ -257,13 +257,9 @@ curl -X POST "http://PUBLIC_EIP:3111/v1/chat/completions" \
 - Push tagged images to ECR on `main` with GitHub Actions and an AWS OIDC role.
 - Run deployment as a separate step so infrastructure and app images can be promoted independently.
 
-## Resume-Ready Summary
+## Project Overview
 
-Built a production-style AWS distributed inference platform on EC2 with Terraform, Docker, systemd, ECR, S3, Route 53 private DNS, and AWS Systems Manager. Implemented public HTTP ingress on a single public EC2 instance, isolated private inference on a separate subnet, and automated model artifact bootstrapping from S3.
-
-## Interview Explanation
-
-The design keeps the public API and internal inference path split across separate EC2 instances. The public host runs the III Engine and caller worker, exposes only the HTTP API, and uses a private Route 53 record for internal RPC. The private host runs the inference worker with no public IP, pulls model artifacts from S3, and reaches the engine over the VPC. Terraform makes the environment reproducible, SSM avoids wide-open SSH access, and ECR gives us immutable deployment artifacts.
+This is a distributed inference platform deployed on AWS EC2 infrastructure. The architecture separates the public-facing API from private inference workloads across different EC2 instances. The public instance runs the III Engine and caller worker with HTTP API access, while the private instance runs the inference worker and pulls model artifacts from S3. Infrastructure is managed with Terraform, deployments use Docker and ECR, and access is controlled through AWS Systems Manager.
 
 ## Commands to Remember
 
