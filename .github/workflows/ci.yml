@@ -88,7 +88,7 @@ jobs:
         run: docker build -f inference-worker/Dockerfile -t inference-worker:ci .
 
   push-images:
-    if: github.event_name == 'push'
+    if: false  # Disabled until AWS credentials are configured
     needs: validate
     runs-on: ubuntu-latest
 
