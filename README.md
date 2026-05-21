@@ -274,3 +274,4 @@ terraform -chdir=terraform apply
 ./scripts/ssh.sh i-xxxxxxxxxxxxxxxxx
 ```
 # CI/CD fix - force workflow run
+# Workflow trigger
