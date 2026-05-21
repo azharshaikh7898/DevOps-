@@ -22,6 +22,9 @@ jobs:
         with:
           terraform_version: 1.6.0
 
+      - name: Clear Terraform cache
+        run: rm -rf ~/.terraform.d/plugins ~/.terraform.d/plugin-cache
+
       - name: Terraform fmt check
         working-directory: terraform
         run: terraform fmt -check -recursive
