@@ -25,13 +25,16 @@ jobs:
       - name: Clear Terraform cache
         run: rm -rf ~/.terraform.d/plugins ~/.terraform.d/plugin-cache
 
+      - name: Remove lock file
+        run: rm -f terraform/.terraform.lock.hcl
+
       - name: Terraform fmt check
         working-directory: terraform
         run: terraform fmt -check -recursive
 
       - name: Terraform init (backend disabled)
         working-directory: terraform
-        run: terraform init -backend=false -input=false
+        run: terraform init -backend=false -input=false -upgrade
 
       - name: Terraform validate
         working-directory: terraform
